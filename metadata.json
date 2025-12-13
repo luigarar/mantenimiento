@@ -1,0 +1,7 @@
+{
+  "name": "MantentPro Industrial",
+  "description": "Industrial Maintenance Management System (CMMS) designed for fleets and machinery. Features role-based access, work order management, asset tracking, and AI-assisted diagnostics.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
