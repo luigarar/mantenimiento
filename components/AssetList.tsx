@@ -1,9 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Asset, AssetStatus, Language, AssetDocument, AssetDocCategory } from '../types';
-import { Search, Filter, MapPin, Calendar, Clock, Plus, Edit, Trash2, X, FileText, Image, Link as LinkIcon, Upload, Download, Tag, Hash, Truck, AlertCircle, Info, FileCheck, Layers, ShieldCheck, PenTool, LayoutGrid, Printer, FileSpreadsheet, Paperclip, Gauge, Factory, ShoppingBag, Eye, Mail, ChevronRight, Droplets, Wind, Scale, Container, Settings, CheckSquare, Camera } from 'lucide-react';
+import { Search, Filter, MapPin, Calendar, Clock, Plus, Edit, Trash2, X, FileText, Image, Link as LinkIcon, Upload, Download, Tag, Hash, Truck, AlertCircle, Info, FileCheck, Layers, ShieldCheck, PenTool, LayoutGrid, Printer, FileSpreadsheet, Paperclip, Gauge, Factory, ShoppingBag, Eye, Mail, ChevronRight, Droplets, Wind, Scale, Container, Settings, CheckSquare, Camera, ArrowLeft, Table } from 'lucide-react';
 import { t } from '../services/translations';
 import { storageService } from '../services/storage';
+import * as XLSX from 'xlsx';
 
 interface AssetListProps {
   assets: Asset[];
@@ -32,7 +33,7 @@ const OPERATIONS_CHECKLIST = [
   "LIMPIEZA DE INTERCAMBIADORES CON EQUIPOS MULTILANZA"
 ];
 
-// --- UI COMPONENTS MOVED OUTSIDE TO PREVENT RE-RENDER FOCUS LOSS ---
+// --- UI COMPONENTS ---
 
 const FormInput = ({ label, value, onChange, type = "text", required = false, icon: Icon, placeholder = "", disabled = false }: any) => (
   <div className="mb-1">
@@ -64,124 +65,313 @@ const SelectionCard = ({ title, desc, icon: Icon, onClick, color }: any) => (
     </button>
 );
 
-interface AssetPrintViewProps {
-  asset: Asset;
+// --- REPORT VIEWS ---
+
+interface ReportViewProps {
+  assets?: Asset[]; // Optional for single asset view
+  asset?: Asset;    // Optional for general report
   currentLang: Language;
   companyLogo: string | null;
+  onClose: () => void;
 }
 
-const AssetPrintView = ({ asset, currentLang, companyLogo }: AssetPrintViewProps) => (
-    <div className="hidden print:block p-8 bg-white text-black max-w-4xl mx-auto text-sm">
-        {/* Header */}
-        <div className="flex justify-between items-center border-b-2 border-gray-800 pb-4 mb-6">
-           <div className="flex items-center gap-4">
-              {companyLogo && <img src={companyLogo} alt="Logo" className="h-16 w-auto object-contain" />}
-              <div>
-                  <h1 className="text-2xl font-bold uppercase tracking-wider">Ficha Técnica del Equipo</h1>
-                  <p className="text-xs text-gray-500 uppercase">{asset.isAccessory ? t('category_accessory', currentLang) : (asset.category === 'MAQUINARIA' ? t('category_machinery', currentLang) : t('category_vehicle', currentLang))}</p>
-              </div>
-           </div>
-           <div className="text-right">
-               <h2 className="text-xl font-mono font-bold text-gray-800">{asset.code}</h2>
-               <p className="text-xs text-gray-600">{new Date().toLocaleDateString()}</p>
-           </div>
-        </div>
+// 1. SINGLE ASSET FICHA TÉCNICA (Existing)
+const FieldBlock = ({ label, value, full = false }: { label: string, value: any, full?: boolean }) => (
+    <div className={`flex flex-col border-b border-gray-200 pb-1 ${full ? 'col-span-full' : ''}`}>
+        <span className="text-[9px] uppercase font-bold text-slate-500 tracking-wider">{label}</span>
+        <span className="text-xs font-bold text-slate-800 break-words">{value !== undefined && value !== null && value !== '' ? String(value) : '-'}</span>
+    </div>
+);
 
-        {/* Main Info */}
-        <div className="grid grid-cols-3 gap-6 mb-6">
-           <div className="col-span-1 border border-gray-300 rounded overflow-hidden h-40 bg-gray-50 flex items-center justify-center">
-               {asset.image ? <img src={asset.image} className="w-full h-full object-cover" /> : <span className="text-gray-400 italic">No Image</span>}
-           </div>
-           <div className="col-span-2 grid grid-cols-2 gap-x-4 gap-y-2 align-content-start">
-               <div className="col-span-2 text-lg font-bold text-gray-900 border-b border-gray-200 pb-1 mb-1">{asset.name}</div>
-               <div><span className="font-bold">Marca:</span> {asset.brand}</div>
-               <div><span className="font-bold">Modelo:</span> {asset.model}</div>
-               <div><span className="font-bold">Matrícula:</span> {asset.licensePlate || '-'}</div>
-               <div><span className="font-bold">Bastidor:</span> {asset.vin || '-'}</div>
-               <div><span className="font-bold">Ubicación:</span> {asset.location}</div>
-               <div><span className="font-bold">Estado:</span> {asset.status}</div>
-               {asset.vehicleConfig && <div><span className="font-bold">Config:</span> {asset.vehicleConfig}</div>}
-               {asset.vehicleSeats && <div><span className="font-bold">Plazas:</span> {asset.vehicleSeats}</div>}
-           </div>
-        </div>
+const SectionTitle = ({ title, icon: Icon }: { title: string, icon?: any }) => (
+    <div className="col-span-full bg-slate-100 border-l-4 border-slate-700 px-3 py-1.5 mt-4 mb-2 flex items-center gap-2 print:bg-gray-100">
+        {Icon && <Icon size={14} className="text-slate-700" />}
+        <h3 className="text-xs font-black uppercase text-slate-800 tracking-wide">{title}</h3>
+    </div>
+);
 
-        {/* Technical Grid (Industrial) */}
-        {(asset.pressurePumpBrand || asset.tankSludgeVolume || asset.vacuumPumpBrand) && (
-            <div className="mb-6">
-                <h3 className="font-bold bg-gray-100 p-2 mb-2 border-l-4 border-blue-600 uppercase">Especificaciones Técnicas</h3>
-                <div className="grid grid-cols-2 gap-6">
-                    {/* Pressure */}
-                    {asset.pressurePumpBrand && (
-                      <div className="border border-gray-200 p-2 rounded">
-                          <h4 className="font-bold border-b mb-2 text-blue-800">Equipo Presión</h4>
-                          <div className="grid grid-cols-2 gap-1 text-xs">
-                              <span>Marca: {asset.pressurePumpBrand}</span>
-                              <span>Mod: {asset.pressurePumpModel}</span>
-                              <span>Presión: {asset.pressureMax} Bar</span>
-                              <span>Caudal: {asset.flowMax} L/m</span>
-                              <span>Reg. Neum: {asset.pneumaticRegulator ? 'SÍ' : 'NO'}</span>
-                          </div>
-                      </div>
-                    )}
-                    {/* Vacuum */}
-                    {asset.vacuumPumpBrand && (
-                      <div className="border border-gray-200 p-2 rounded">
-                          <h4 className="font-bold border-b mb-2 text-blue-800">Equipo Vacío</h4>
-                          <div className="grid grid-cols-2 gap-1 text-xs">
-                              <span>Marca: {asset.vacuumPumpBrand}</span>
-                              <span>Tipo: {asset.vacuumType}</span>
-                              <span>Caudal: {asset.vacuumFlow}</span>
-                              <span>Potencia: {asset.vacuumPower}</span>
-                          </div>
-                      </div>
-                    )}
-                    {/* Tanks */}
-                    {(asset.tankSludgeVolume || asset.tankWaterVolume) && (
-                      <div className="border border-gray-200 p-2 rounded">
-                          <h4 className="font-bold border-b mb-2 text-blue-800">Cisternas</h4>
-                          <div className="grid grid-cols-2 gap-1 text-xs">
-                              <span>Lodos: {asset.tankSludgeVolume} L</span>
-                              <span>Agua: {asset.tankWaterVolume} L</span>
-                              <span>Material: {asset.tankMaterial}</span>
-                              <span>ADR: {asset.adr ? 'SÍ' : 'NO'}</span>
-                          </div>
-                      </div>
-                    )}
-                    {/* Weights & Other */}
-                    <div className="border border-gray-200 p-2 rounded">
-                        <h4 className="font-bold border-b mb-2 text-blue-800">Pesos y Varios</h4>
-                        <div className="grid grid-cols-2 gap-1 text-xs">
-                            <span>Tara: {asset.tare} Kg</span>
-                            <span>PMA: {asset.pma} Kg</span>
-                            <span>Basculante: {asset.tipping ? 'SÍ' : 'NO'}</span>
-                            <span>Motor Aux: {asset.auxMotorBrand || '-'}</span>
+const AssetPrintView = ({ asset, currentLang, companyLogo, onClose }: { asset: Asset, currentLang: Language, companyLogo: string|null, onClose: () => void }) => (
+    <div className="fixed inset-0 bg-white z-[9999] overflow-auto">
+        <div className="print:hidden sticky top-0 left-0 right-0 bg-slate-800 text-white p-4 flex justify-between items-center shadow-lg z-50">
+            <div className="flex items-center gap-4">
+                <button onClick={onClose} className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg font-bold transition-colors">
+                    <ArrowLeft size={20} /> Volver
+                </button>
+                <span className="font-mono text-sm text-slate-300">Vista Previa de Impresión</span>
+            </div>
+            <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-lg font-bold shadow-md flex items-center gap-2">
+                <Printer size={20} /> Imprimir Ficha
+            </button>
+        </div>
+        <div className="max-w-[210mm] mx-auto bg-white p-8 md:p-10 print:p-0 print:max-w-none text-slate-900 print:w-full">
+            {/* ... Content of Single Asset Ficha ... */}
+            <header className="flex justify-between items-start border-b-2 border-slate-900 pb-4 mb-6">
+                <div className="flex items-center gap-4">
+                    {companyLogo ? <img src={companyLogo} alt="Logo" className="h-16 w-auto object-contain" /> : <div className="h-16 w-16 bg-slate-200 flex items-center justify-center font-bold text-xs">LOGO</div>}
+                    <div>
+                        <h1 className="text-2xl font-black uppercase tracking-tight text-slate-900 leading-none">Ficha Técnica de Activo</h1>
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">Gestión de Mantenimiento e Inventario</p>
+                    </div>
+                </div>
+                <div className="text-right">
+                    <div className="text-[10px] text-slate-400 uppercase font-bold">Código de Inventario</div>
+                    <div className="text-3xl font-mono font-black text-slate-900">{asset.code}</div>
+                    <div className="text-[9px] text-slate-400 mt-1">{new Date().toLocaleString()}</div>
+                </div>
+            </header>
+            <div className="grid grid-cols-12 gap-6">
+                <div className="col-span-12 md:col-span-4 flex flex-col gap-4">
+                    <div className="aspect-[4/3] w-full bg-slate-50 border border-slate-200 flex items-center justify-center relative overflow-hidden rounded-sm">
+                        {asset.image ? <img src={asset.image} className="w-full h-full object-cover" alt="Asset" /> : <span className="text-slate-300 text-xs font-bold uppercase">Sin Imagen</span>}
+                        <div className={`absolute top-2 left-2 px-2 py-0.5 text-[10px] font-bold uppercase border ${asset.status === 'OPERATIVO' ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-800 border-red-300'}`}>{asset.status}</div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 p-4">
+                        <h4 className="text-[10px] font-black uppercase text-slate-400 mb-3 border-b border-slate-200 pb-1">Identificación Principal</h4>
+                        <div className="space-y-3">
+                            <FieldBlock label="Nombre / Descripción" value={asset.name} />
+                            <FieldBlock label="Marca" value={asset.brand} />
+                            <FieldBlock label="Modelo" value={asset.model} />
+                            <FieldBlock label="Tipo / Categoría" value={`${asset.category} - ${asset.type}`} />
+                            <FieldBlock label="Ubicación Actual" value={asset.location} />
+                            <FieldBlock label="Horómetro / KM" value={`${asset.hours.toLocaleString()} h`} />
+                        </div>
+                    </div>
+                </div>
+                <div className="col-span-12 md:col-span-8">
+                    <div className="grid grid-cols-4 gap-x-4 gap-y-3">
+                        <SectionTitle title="Especificaciones del Chasis / Vehículo" icon={Truck} />
+                        <FieldBlock label="Matrícula" value={asset.licensePlate} />
+                        <FieldBlock label="Nº Bastidor (VIN)" value={asset.vin} full={true} />
+                        <FieldBlock label="Año Fabricación" value={asset.manufactureYear} />
+                        <FieldBlock label="Año Adquisición" value={asset.acquisitionYear} />
+                        <FieldBlock label="Configuración" value={asset.vehicleConfig} />
+                        <FieldBlock label="Nº Plazas" value={asset.vehicleSeats} />
+                        <FieldBlock label="Tara (Kg)" value={asset.tare} />
+                        <FieldBlock label="P.M.A (Kg)" value={asset.pma} />
+                        <FieldBlock label="Carga Útil (Kg)" value={asset.payload} />
+                        <FieldBlock label="Inclinación Máx." value={asset.maxInclination ? `${asset.maxInclination}º` : ''} />
+                        <FieldBlock label="Basculante" value={asset.tipping ? 'SÍ' : 'NO'} />
+                        <FieldBlock label="Motor Auxiliar" value={`${asset.auxMotorBrand || ''} ${asset.auxMotorModel || ''} ${asset.auxMotorPower || ''}`} />
+                        {asset.isAccessory && (
+                            <>
+                                <SectionTitle title="Datos de Accesorio" icon={Layers} />
+                                <FieldBlock label="Referencia / Serie" value={asset.reference} />
+                                <FieldBlock label="Fabricante" value={asset.manufacturer} />
+                                <FieldBlock label="Proveedor" value={asset.vendor} />
+                                <FieldBlock label="Presión Trabajo" value={asset.pressure ? `${asset.pressure} Bar` : ''} />
+                            </>
+                        )}
+                        {(!asset.isAccessory && (asset.pressurePumpBrand || asset.vacuumPumpBrand || asset.tankSludgeVolume)) && (
+                            <>
+                                <SectionTitle title="Equipamiento Industrial (Limpieza Técnica)" icon={Factory} />
+                                <div className="col-span-4 grid grid-cols-4 gap-4 bg-blue-50/50 p-2 border border-blue-100 rounded-sm">
+                                    <div className="col-span-4 text-[10px] font-bold text-blue-700 uppercase mb-1">Sistema de Alta Presión</div>
+                                    <FieldBlock label="Marca Bomba" value={asset.pressurePumpBrand} />
+                                    <FieldBlock label="Modelo Bomba" value={asset.pressurePumpModel} />
+                                    <FieldBlock label="Presión Máx (Bar)" value={asset.pressureMax} />
+                                    <FieldBlock label="Caudal Máx (L/min)" value={asset.flowMax} />
+                                    <FieldBlock label="Regulador Neumático" value={asset.pneumaticRegulator ? 'SÍ' : 'NO'} />
+                                    <FieldBlock label="Potencia" value={asset.auxMotorPower} />
+                                </div>
+                                <div className="col-span-4 grid grid-cols-4 gap-4 bg-orange-50/50 p-2 border border-orange-100 rounded-sm mt-1">
+                                    <div className="col-span-4 text-[10px] font-bold text-orange-700 uppercase mb-1">Sistema de Vacío / Succión</div>
+                                    <FieldBlock label="Marca Depresor" value={asset.vacuumPumpBrand} />
+                                    <FieldBlock label="Modelo" value={asset.vacuumPumpModel} />
+                                    <FieldBlock label="Tipo" value={asset.vacuumType} />
+                                    <FieldBlock label="Caudal (m³/h)" value={asset.vacuumFlow} />
+                                    <FieldBlock label="Potencia Absorbida" value={asset.vacuumPower} />
+                                    <FieldBlock label="Vacío Generado" value={asset.vacuumGenerated} />
+                                </div>
+                                <div className="col-span-4 grid grid-cols-4 gap-4 bg-green-50/50 p-2 border border-green-100 rounded-sm mt-1">
+                                    <div className="col-span-4 text-[10px] font-bold text-green-700 uppercase mb-1">Capacidad de Cisternas y Carga</div>
+                                    <FieldBlock label="Vol. Lodos (L)" value={asset.tankSludgeVolume} />
+                                    <FieldBlock label="Vol. Agua (L)" value={asset.tankWaterVolume} />
+                                    <FieldBlock label="Material" value={asset.tankMaterial} />
+                                    <FieldBlock label="Certificación ADR" value={asset.adr ? 'SÍ (Mercancías Peligrosas)' : 'NO'} />
+                                    <FieldBlock label="Llenado Máximo" value={asset.tankMaxFill ? `${asset.tankMaxFill}%` : ''} />
+                                    <FieldBlock label="Tipo Equipo" value={asset.equipmentType} />
+                                </div>
+                            </>
+                        )}
+                        <SectionTitle title="Gestión Administrativa y Mantenimiento" icon={Info} />
+                        <FieldBlock label="Titularidad" value={asset.ownership} />
+                        <FieldBlock label="Responsable Asignado" value={asset.responsible} />
+                        <FieldBlock label="Último Mantenimiento" value={asset.lastMaintenance} />
+                        <FieldBlock label="Próximo Vencimiento" value={asset.nextMaintenance} />
+                    </div>
+                </div>
+                <div className="col-span-12 grid grid-cols-2 gap-8 mt-4 border-t border-slate-300 pt-6">
+                    <div>
+                        <h4 className="text-xs font-black uppercase text-slate-800 mb-3 flex items-center gap-2"><Paperclip size={14}/> Documentación Legal y Técnica</h4>
+                        <table className="w-full text-[10px] border border-slate-200">
+                            <thead className="bg-slate-100 text-slate-600 font-bold uppercase">
+                                <tr>
+                                    <th className="p-2 text-left">Documento / Categoría</th>
+                                    <th className="p-2 text-center">Vigencia (Inicio)</th>
+                                    <th className="p-2 text-center">Vencimiento</th>
+                                    <th className="p-2 text-center">Estado</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                                {asset.documents && asset.documents.length > 0 ? asset.documents.map((doc, i) => {
+                                    const isExpired = doc.expirationDate && new Date(doc.expirationDate) < new Date();
+                                    return (
+                                        <tr key={i}>
+                                            <td className="p-2 font-medium">{doc.name} <span className="text-slate-400 block text-[9px]">{doc.category}</span></td>
+                                            <td className="p-2 text-center">{doc.effectiveDate || '-'}</td>
+                                            <td className="p-2 text-center font-mono">{doc.noExpiry ? 'PERMANENTE' : (doc.expirationDate || '-')}</td>
+                                            <td className="p-2 text-center">
+                                                {doc.noExpiry ? <span className="text-green-600 font-bold">VIGENTE</span> : 
+                                                 (isExpired ? <span className="text-red-600 font-bold bg-red-50 px-1 rounded">CADUCADO</span> : <span className="text-green-600 font-bold">VIGENTE</span>)}
+                                            </td>
+                                        </tr>
+                                    );
+                                }) : (
+                                    <tr><td colSpan={4} className="p-3 text-center text-slate-400 italic">No hay documentos registrados</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div>
+                        <h4 className="text-xs font-black uppercase text-slate-800 mb-3 flex items-center gap-2"><CheckSquare size={14}/> Operaciones Autorizadas</h4>
+                        <div className="bg-slate-50 border border-slate-200 p-4 rounded-sm min-h-[150px]">
+                            {asset.allowedOperations && asset.allowedOperations.length > 0 ? (
+                                <ul className="grid grid-cols-1 gap-1">
+                                    {asset.allowedOperations.map((op, i) => (
+                                        <li key={i} className="flex items-start gap-2 text-[10px] text-slate-700">
+                                            <div className="mt-0.5 w-2 h-2 bg-green-500 rounded-full shrink-0"></div>
+                                            {op}
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <span className="text-slate-400 text-[10px] italic">No se han definido operaciones específicas para este equipo.</span>
+                            )}
                         </div>
                     </div>
                 </div>
             </div>
-        )}
-
-        {/* Allowed Operations Checklist */}
-        {asset.allowedOperations && asset.allowedOperations.length > 0 && (
-            <div className="mb-6">
-                <h3 className="font-bold bg-gray-100 p-2 mb-2 border-l-4 border-green-600 uppercase">Operaciones Aptas</h3>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                    {asset.allowedOperations.map((op, i) => (
-                        <div key={i} className="flex items-start gap-2">
-                            <div className="mt-0.5 w-3 h-3 border border-gray-600 flex items-center justify-center">
-                                <div className="w-2 h-2 bg-black"></div>
-                            </div>
-                            <span>{op}</span>
-                        </div>
-                    ))}
+            <div className="border-t-2 border-slate-800 mt-8 pt-4 flex justify-between items-center text-[9px] text-slate-500 print:fixed print:bottom-4 print:left-8 print:right-8 print:border-t print:bg-white">
+                <div>
+                    <p className="font-bold text-slate-700">MANTENTPRO INDUSTRIAL - GESTIÓN DE ACTIVOS v1.0</p>
+                    <p>Informe generado automáticamente. Este documento es de uso interno exclusivo.</p>
+                </div>
+                <div className="text-right">
+                    <p>ID Sistema: <span className="font-mono">{asset.id}</span></p>
+                    <p>Página 1 de 1</p>
                 </div>
             </div>
-        )}
+        </div>
+    </div>
+);
 
-        {/* Docs Footer */}
-        <div className="mt-auto pt-4 border-t border-gray-400 text-xs text-gray-500 flex justify-between">
-            <span>Documento generado por MantentPro Industrial</span>
-            <span>Página 1 de 1</span>
+// 2. GENERAL ASSETS REPORT (New)
+const AssetsGeneralReport = ({ assets, companyLogo, onClose }: { assets: Asset[], companyLogo: string|null, onClose: () => void }) => (
+    <div className="fixed inset-0 bg-white z-[9999] overflow-auto">
+        <div className="print:hidden sticky top-0 left-0 right-0 bg-slate-800 text-white p-4 flex justify-between items-center shadow-lg z-50">
+            <div className="flex items-center gap-4">
+                <button onClick={onClose} className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-lg font-bold transition-colors">
+                    <ArrowLeft size={20} /> Volver
+                </button>
+                <span className="font-mono text-sm text-slate-300">Informe General de Flota</span>
+            </div>
+            <button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-500 px-6 py-2 rounded-lg font-bold shadow-md flex items-center gap-2">
+                <Printer size={20} /> Imprimir Informe General
+            </button>
+        </div>
+
+        <div className="w-full bg-white p-8 print:p-4 print:w-full print:landscape-mode">
+            {/* Header */}
+            <div className="flex justify-between items-end border-b-4 border-slate-800 pb-4 mb-6">
+                <div className="flex items-center gap-6">
+                    {companyLogo ? <img src={companyLogo} alt="Logo" className="h-16 w-auto object-contain" /> : <div className="h-16 w-16 bg-slate-200 flex items-center justify-center font-bold text-xs">LOGO</div>}
+                    <div>
+                        <h1 className="text-3xl font-black uppercase tracking-tight text-slate-900">Listado General de Activos</h1>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mt-1">Inventario Completo de Flota y Maquinaria</p>
+                    </div>
+                </div>
+                <div className="text-right">
+                    <p className="text-xs text-slate-500 font-bold uppercase">Fecha de Emisión</p>
+                    <p className="text-xl font-mono font-bold text-slate-900">{new Date().toLocaleDateString()}</p>
+                </div>
+            </div>
+
+            {/* Table */}
+            <table className="w-full text-left border-collapse">
+                <thead>
+                    <tr className="bg-slate-800 text-white text-[10px] uppercase font-bold tracking-wider">
+                        <th className="p-3 rounded-tl-lg">Código / ID</th>
+                        <th className="p-3">Descripción Activo</th>
+                        <th className="p-3">Categoría / Tipo</th>
+                        <th className="p-3">Identificación</th>
+                        <th className="p-3">Estado / Ubicación</th>
+                        <th className="p-3 w-1/4">Especificaciones Clave</th>
+                        <th className="p-3 text-center rounded-tr-lg">Admin</th>
+                    </tr>
+                </thead>
+                <tbody className="text-[10px] text-slate-700 divide-y divide-slate-200 border-b border-slate-200">
+                    {assets.map((asset, idx) => (
+                        <tr key={asset.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50 break-inside-avoid'}>
+                            <td className="p-3 font-mono font-bold text-slate-900 align-top">{asset.code}</td>
+                            <td className="p-3 align-top">
+                                <div className="font-bold text-sm">{asset.name}</div>
+                                <div className="text-slate-500">{asset.brand} {asset.model}</div>
+                            </td>
+                            <td className="p-3 align-top">
+                                <span className="block font-bold">{asset.category}</span>
+                                <span className="block text-slate-500 italic">{asset.type}</span>
+                            </td>
+                            <td className="p-3 align-top">
+                                <div className="space-y-1">
+                                    {asset.licensePlate && <div className="bg-yellow-50 border border-yellow-200 px-1 rounded inline-block font-mono font-bold">{asset.licensePlate}</div>}
+                                    {asset.vin && <div className="text-[9px] text-slate-400">VIN: {asset.vin}</div>}
+                                    {asset.reference && <div className="text-[9px] text-slate-400">Ref: {asset.reference}</div>}
+                                </div>
+                            </td>
+                            <td className="p-3 align-top">
+                                <span className={`inline-block px-2 py-0.5 rounded font-bold text-[9px] mb-1 ${
+                                    asset.status === 'OPERATIVO' ? 'bg-green-100 text-green-800' : 
+                                    asset.status === 'AVERIADO' ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'
+                                }`}>{asset.status}</span>
+                                <div className="flex items-center gap-1 text-slate-600"><MapPin size={10}/> {asset.location}</div>
+                            </td>
+                            <td className="p-3 align-top text-[9px] leading-tight text-slate-600">
+                                {/* Smart Summary of Tech Specs */}
+                                {asset.pressureMax && <div>Presión: <b>{asset.pressureMax} Bar</b> / {asset.flowMax} L/min</div>}
+                                {asset.vacuumFlow && <div>Vacío: <b>{asset.vacuumFlow} m³/h</b> ({asset.vacuumType})</div>}
+                                {(asset.tankSludgeVolume || asset.tankWaterVolume) && <div>Cisterna: Lodos <b>{asset.tankSludgeVolume}L</b> / Agua <b>{asset.tankWaterVolume}L</b></div>}
+                                {asset.adr && <div className="text-red-600 font-bold">ADR / Mercancías Peligrosas</div>}
+                                {asset.pma && <div>Pesos: Tara {asset.tare}kg / PMA {asset.pma}kg</div>}
+                                {asset.pressure && <div>Presión Trabajo: {asset.pressure} Bar</div>}
+                            </td>
+                            <td className="p-3 align-top text-center">
+                                <div className="font-bold">{asset.manufactureYear}</div>
+                                <div className="text-slate-400">{asset.ownership}</div>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+
+            {/* Summary Footer */}
+            <div className="mt-8 flex gap-8 border-t-2 border-slate-800 pt-4 break-inside-avoid">
+                <div>
+                    <span className="block text-[10px] font-bold uppercase text-slate-500">Total Activos</span>
+                    <span className="text-2xl font-black text-slate-900">{assets.length}</span>
+                </div>
+                <div>
+                    <span className="block text-[10px] font-bold uppercase text-slate-500">Operativos</span>
+                    <span className="text-2xl font-black text-green-600">{assets.filter(a => a.status === AssetStatus.OPERATIVO).length}</span>
+                </div>
+                <div>
+                    <span className="block text-[10px] font-bold uppercase text-slate-500">En Taller / Avería</span>
+                    <span className="text-2xl font-black text-red-600">{assets.filter(a => a.status !== AssetStatus.OPERATIVO).length}</span>
+                </div>
+            </div>
+            
+            <div className="mt-8 text-center text-[10px] text-slate-400">
+                <p>MantentPro Industrial - Informe Generado el {new Date().toLocaleString()}</p>
+            </div>
         </div>
     </div>
 );
@@ -223,6 +413,7 @@ const AssetList: React.FC<AssetListProps> = ({ assets, currentLang, onRefresh })
 
   // Printing State
   const [printingAsset, setPrintingAsset] = useState<Asset | null>(null);
+  const [showGeneralReport, setShowGeneralReport] = useState(false); // NEW STATE FOR GENERAL REPORT
   const [companyLogo, setCompanyLogo] = useState<string | null>(null);
 
   // Image Preview Modal
@@ -375,83 +566,140 @@ const AssetList: React.FC<AssetListProps> = ({ assets, currentLang, onRefresh })
     onRefresh();
   };
 
-  // --- CSV TEMPLATE IN SPANISH & UPPERCASE ---
+  // --- EXCEL TEMPLATE GENERATION ---
   const downloadTemplate = () => {
     const headers = [
-        "CODIGO", "NOMBRE", "ES_ACCESORIO", "CATEGORIA", "TIPO", "MARCA", "MODELO", 
-        "MATRICULA", "BASTIDOR", "REFERENCIA", "PRESION_BAR",
-        "UBICACION", "HORAS_KM", "ESTADO", 
-        "TITULARIDAD", "ANIO_FABRICACION", "PROXIMO_MANTENIMIENTO"
-    ].join(',');
-    
-    // Example row
-    const example = [
-        "ACC-001", "EJEMPLO TOBERA", "TRUE", "ACCESORIO", "Tobera", "StoneAge", "Warthog", 
-        "", "", "REF-999", "1200", 
-        "Taller", "100", "OPERATIVO", 
-        "PROPIO", "2023", "2024-06-01"
-    ].join(',');
+        "CODIGO", "NOMBRE", "MARCA", "MODELO", "MATRICULA", "BASTIDOR", "CATEGORIA", "TIPO", 
+        "ESTADO", "UBICACION", "HORAS", "TITULARIDAD", "RESPONSABLE", 
+        "ANIO_FABRICACION", "ANIO_ADQUISICION", "PROXIMO_MANTENIMIENTO", 
+        "ES_ACCESORIO", "REFERENCIA", "FABRICANTE", "PROVEEDOR", "PRESION_TRABAJO",
+        "CONFIGURACION_VEHICULO", "PLAZAS", 
+        "MARCA_BOMBA_PRESION", "MODELO_BOMBA_PRESION", "PRESION_MAX", "CAUDAL_MAX", "REGULADOR_NEUMATICO",
+        "MARCA_DEPRESOR", "MODELO_DEPRESOR", "TIPO_DEPRESOR", "CAUDAL_DEPRESOR", "VACIO_GENERADO",
+        "VOLUMEN_LODOS", "VOLUMEN_AGUA", "MATERIAL_CISTERNA", "ADR", "BASCULANTE",
+        "TARA", "PMA", "CARGA_UTIL"
+    ];
 
-    const csvContent = "data:text/csv;charset=utf-8," + headers + "\n" + example;
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", "PLANTILLA_ACTIVOS_MANTENTPRO.csv");
-    document.body.appendChild(link);
-    link.click();
+    const example = [
+        "ACC-001", "EJEMPLO TOBERA", "StoneAge", "Warthog", "", "", "ACCESORIO", "Tobera",
+        "OPERATIVO", "Taller", "100", "PROPIO", "Juan Perez",
+        "2023", "2023", "2024-06-01",
+        "TRUE", "REF-999", "StoneAge", "Proveedor X", "1200",
+        "", "",
+        "", "", "", "", "",
+        "", "", "", "", "",
+        "", "", "", "", "",
+        "", "", ""
+    ];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([headers, example]);
+    
+    // Set some basic column widths
+    ws['!cols'] = headers.map(() => ({ wch: 20 }));
+
+    XLSX.utils.book_append_sheet(wb, ws, "Plantilla Activos");
+    XLSX.writeFile(wb, "PLANTILLA_CARGA_ACTIVOS.xlsx");
   };
 
-  // --- IMPORT CSV MAPPING ---
+  // --- EXCEL IMPORT MAPPING ---
   const handleBulkImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    
     const reader = new FileReader();
     reader.onload = async (evt) => {
-      const text = evt.target?.result as string;
-      const lines = text.split('\n');
-      let count = 0;
-      // Skip header (Assuming it maps by index order as in template, or logic could be smarter)
-      for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        const cols = line.split(',');
-        
-        // Mapping from the Spanish Template order
-        const newAsset: Asset = {
-          id: crypto.randomUUID(),
-          code: cols[0] || `IMP-${Date.now()}`,
-          name: cols[1] || 'Importado',
-          isAccessory: cols[2]?.toUpperCase() === 'TRUE',
-          category: cols[3] || 'VEHICULO',
-          type: cols[4] || 'General',
-          brand: cols[5] || '',
-          model: cols[6] || '',
-          licensePlate: cols[7] || '',
-          vin: cols[8] || '',
-          reference: cols[9] || '',
-          pressure: Number(cols[10]) || 0,
-          location: cols[11] || 'Base',
-          hours: Number(cols[12]) || 0,
-          status: (cols[13] as AssetStatus) || AssetStatus.OPERATIVO,
-          ownership: (cols[14] as any) || 'PROPIO',
-          manufactureYear: Number(cols[15]) || new Date().getFullYear(),
-          nextMaintenance: cols[16] || new Date().toISOString(),
-          lastMaintenance: new Date().toISOString(),
-          documents: []
-        };
-        await storageService.saveAsset(newAsset);
-        count++;
-      }
-      alert(`Importados correctamente: ${count}`);
-      onRefresh();
+        try {
+            const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            
+            // Get data as array of arrays (header: 1 to ensure order)
+            const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+            
+            if (jsonData.length < 2) {
+                alert("El archivo parece vacío o no tiene datos.");
+                return;
+            }
+
+            let count = 0;
+            // Iterate starting from row 1 (index 1), row 0 is header
+            for (let i = 1; i < jsonData.length; i++) {
+                const cols = jsonData[i];
+                if (!cols || cols.length === 0) continue;
+
+                // Map columns based on template order
+                const newAsset: Asset = {
+                  id: crypto.randomUUID(),
+                  code: String(cols[0] || `IMP-${Date.now()}-${i}`),
+                  name: String(cols[1] || 'Importado'),
+                  brand: String(cols[2] || ''),
+                  model: String(cols[3] || ''),
+                  licensePlate: String(cols[4] || ''),
+                  vin: String(cols[5] || ''),
+                  category: String(cols[6] || 'VEHICULO'),
+                  type: String(cols[7] || 'General'),
+                  status: (cols[8] as AssetStatus) || AssetStatus.OPERATIVO,
+                  location: String(cols[9] || 'Base'),
+                  hours: Number(cols[10]) || 0,
+                  ownership: (cols[11] as any) || 'PROPIO',
+                  responsible: String(cols[12] || ''),
+                  manufactureYear: Number(cols[13]) || new Date().getFullYear(),
+                  acquisitionYear: Number(cols[14]) || new Date().getFullYear(),
+                  nextMaintenance: String(cols[15] || new Date().toISOString()),
+                  lastMaintenance: new Date().toISOString(),
+                  
+                  isAccessory: String(cols[16]).toUpperCase() === 'TRUE',
+                  reference: String(cols[17] || ''),
+                  manufacturer: String(cols[18] || ''),
+                  vendor: String(cols[19] || ''),
+                  pressure: Number(cols[20]) || 0,
+                  
+                  vehicleConfig: String(cols[21] || ''),
+                  vehicleSeats: Number(cols[22]) || 0,
+                  
+                  pressurePumpBrand: String(cols[23] || ''),
+                  pressurePumpModel: String(cols[24] || ''),
+                  pressureMax: Number(cols[25]) || 0,
+                  flowMax: Number(cols[26]) || 0,
+                  pneumaticRegulator: String(cols[27]).toUpperCase() === 'TRUE',
+                  
+                  vacuumPumpBrand: String(cols[28] || ''),
+                  vacuumPumpModel: String(cols[29] || ''),
+                  vacuumType: String(cols[30] || ''),
+                  vacuumFlow: Number(cols[31]) || 0,
+                  vacuumGenerated: Number(cols[32]) || 0,
+                  
+                  tankSludgeVolume: Number(cols[33]) || 0,
+                  tankWaterVolume: Number(cols[34]) || 0,
+                  tankMaterial: String(cols[35] || ''),
+                  adr: String(cols[36]).toUpperCase() === 'TRUE',
+                  tipping: String(cols[37]).toUpperCase() === 'TRUE',
+                  
+                  tare: Number(cols[38]) || 0,
+                  pma: Number(cols[39]) || 0,
+                  payload: Number(cols[40]) || 0,
+
+                  documents: []
+                };
+                await storageService.saveAsset(newAsset);
+                count++;
+            }
+            
+            alert(`Importados correctamente: ${count} activos.`);
+            onRefresh();
+        } catch (error) {
+            console.error("Error al importar Excel:", error);
+            alert("Error al procesar el archivo Excel. Asegúrese de usar la plantilla correcta.");
+        }
     };
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const handlePrintList = () => {
-    setPrintingAsset(null);
-    setTimeout(() => window.print(), 100);
+    setShowGeneralReport(true); // Toggle the new report view instead of direct print
   };
 
   const handlePrintFicha = (asset: Asset) => {
@@ -459,6 +707,12 @@ const AssetList: React.FC<AssetListProps> = ({ assets, currentLang, onRefresh })
       setTimeout(() => {
           window.print();
       }, 500);
+  };
+
+  const handleClosePrintView = () => {
+      setPrintingAsset(null);
+      setShowGeneralReport(false);
+      onRefresh();
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -534,12 +788,28 @@ const AssetList: React.FC<AssetListProps> = ({ assets, currentLang, onRefresh })
 
   return (
     <div className="space-y-6">
+      
+      {/* 1. INDIVIDUAL ASSET PRINT VIEW */}
       {printingAsset && (
-          <style>{`@media print { body > * { display: none !important; } .print-container-ficha { display: block !important; width: 100%; height: 100%; position: absolute; top: 0; left: 0; background: white; z-index: 9999; } }`}</style>
+          <AssetPrintView 
+            asset={printingAsset} 
+            currentLang={currentLang} 
+            companyLogo={companyLogo} 
+            onClose={handleClosePrintView} 
+          />
       )}
-      <div className={`print-container-ficha ${printingAsset ? 'block' : 'hidden'}`}>{printingAsset && <AssetPrintView asset={printingAsset} currentLang={currentLang} companyLogo={companyLogo} />}</div>
 
-      <div className={printingAsset ? 'hidden print:hidden' : ''}>
+      {/* 2. GENERAL REPORT VIEW (NEW) */}
+      {showGeneralReport && (
+          <AssetsGeneralReport 
+            assets={filteredAssets} 
+            companyLogo={companyLogo}
+            onClose={handleClosePrintView}
+          />
+      )}
+
+      {/* 3. MAIN CONTENT (Hidden when printing) */}
+      <div className={(printingAsset || showGeneralReport) ? 'hidden' : ''}>
         
         {/* HEADER */}
         <div className="flex flex-col gap-6 print:hidden">
@@ -550,16 +820,16 @@ const AssetList: React.FC<AssetListProps> = ({ assets, currentLang, onRefresh })
             </div>
             <div className="flex flex-wrap gap-2">
                 <button onClick={downloadTemplate} className="bg-white border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm flex items-center gap-2 hover:bg-gray-50">
-                   <FileSpreadsheet size={18} /> PLANTILLA CSV
+                   <FileSpreadsheet size={18} /> PLANTILLA EXCEL
                 </button>
                 <div className="relative">
-                    <input type="file" ref={fileInputRef} accept=".csv" onChange={handleBulkImport} className="absolute inset-0 opacity-0 cursor-pointer w-full" />
+                    <input type="file" ref={fileInputRef} accept=".xlsx, .xls" onChange={handleBulkImport} className="absolute inset-0 opacity-0 cursor-pointer w-full" />
                     <button className="bg-white border border-gray-300 text-gray-700 px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm flex items-center gap-2 hover:bg-gray-50">
-                        <Upload size={18} /> {t('upload', currentLang)}
+                        <Upload size={18} /> IMPORTAR EXCEL
                     </button>
                 </div>
                 <button onClick={handlePrintList} className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-bold shadow-sm flex items-center gap-2">
-                    <Printer size={18} /> {t('printReport', currentLang)}
+                    <Printer size={18} /> INFORME GENERAL
                 </button>
                 <button onClick={() => handleOpenModal()} className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-md flex items-center gap-2 transition-transform hover:scale-105">
                     <Plus size={20} /> {t('newAsset', currentLang)}
